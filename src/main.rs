@@ -15,12 +15,43 @@ use ratatui::{
     widgets::{List, ListItem, ListState},
 };
 
+#[derive(Debug)]
+enum AppState {
+    Listing,
+    Viewing,
+}
+
+#[derive(Debug)]
+struct App {
+    state: AppState,
+    dotfiles: Vec<PathBuf>,
+    list_state: ListState,
+}
+
+impl App {
+    fn new() -> io::Result<Self> {
+        let dotfiles = find_dotfiles()?;
+
+        let mut list_state = ListState::default();
+        list_state.select(Some(0));
+
+        Ok(Self {
+            state: AppState::Listing,
+            dotfiles,
+            list_state,
+        })
+    }
+}
+
 fn main() -> io::Result<()> {
     // Setup the terminal
     let mut terminal = init_terminal()?;
 
+    // Create the app
+    let mut app = App::new()?;
+
     // Main application loop
-    let result = run(&mut terminal);
+    let result = run(&mut terminal, &mut app);
 
     // Restore the terminal
     restore_terminal()?;
@@ -36,23 +67,17 @@ fn init_terminal() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
 }
 
 // Main application loop
-fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> io::Result<()> {
-    let dotfiles = find_dotfiles()?;
-    let list_items: Vec<ListItem> = dotfiles
-        .iter()
-        .map(|path| ListItem::new(path.to_string_lossy().to_string()))
-        .collect();
-
-    let mut selected_index = 0;
-    let mut list_state = ListState::default();
-
+fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> io::Result<()> {
     loop {
-        // This line connects the number 'selected_index' to the UI state
-        list_state.select(Some(selected_index));
-
         terminal.draw(|frame| {
             let area = frame.size();
-            let list = List::new(list_items.clone())
+            let list_items: Vec<ListItem> = app
+                .dotfiles
+                .iter()
+                .map(|path| ListItem::new(path.to_string_lossy().to_string()))
+                .collect();
+
+            let list = List::new(list_items)
                 .highlight_style(
                     Style::default()
                         .add_modifier(Modifier::BOLD)
@@ -60,7 +85,7 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> io::Result<()> {
                 )
                 .highlight_symbol(">> ");
 
-            frame.render_stateful_widget(list, area, &mut list_state);
+            frame.render_stateful_widget(list, area, &mut app.list_state);
         })?;
 
         // Handle input
@@ -69,13 +94,17 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> io::Result<()> {
                 match key.code {
                     KeyCode::Char('q') => break,
                     KeyCode::Down => {
-                        if selected_index < dotfiles.len() - 1 {
-                            selected_index += 1;
+                        if let Some(selected) = app.list_state.selected() {
+                            if selected < app.dotfiles.len() - 1 {
+                                app.list_state.select(Some(selected + 1));
+                            }
                         }
                     }
                     KeyCode::Up => {
-                        if selected_index > 0 {
-                            selected_index -= 1;
+                        if let Some(selected) = app.list_state.selected() {
+                            if selected > 0 {
+                                app.list_state.select(Some(selected - 1));
+                            }
                         }
                     }
                     _ => {}
