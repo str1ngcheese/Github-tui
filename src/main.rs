@@ -10,20 +10,14 @@ use crossterm::{
     ExecutableCommand,
 };
 use ratatui::{
+    layout::{Constraint, Direction, Layout},
     prelude::{CrosstermBackend, Terminal},
     style::{Color, Modifier, Style},
-    widgets::{List, ListItem, ListState},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Padding, Paragraph},
 };
 
 #[derive(Debug)]
-enum AppState {
-    Listing,
-    Viewing,
-}
-
-#[derive(Debug)]
 struct App {
-    state: AppState,
     dotfiles: Vec<PathBuf>,
     list_state: ListState,
 }
@@ -36,7 +30,6 @@ impl App {
         list_state.select(Some(0));
 
         Ok(Self {
-            state: AppState::Listing,
             dotfiles,
             list_state,
         })
@@ -70,7 +63,6 @@ fn init_terminal() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
 fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> io::Result<()> {
     loop {
         terminal.draw(|frame| {
-            let area = frame.size();
             let list_items: Vec<ListItem> = app
                 .dotfiles
                 .iter()
@@ -83,9 +75,41 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> io::
                         .add_modifier(Modifier::BOLD)
                         .bg(Color::Gray),
                 )
-                .highlight_symbol(">> ");
+                .highlight_symbol(">> ")
+                .block(Block::default().title("Dotfiles").borders(Borders::ALL));
 
-            frame.render_stateful_widget(list, area, &mut app.list_state);
+            let chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
+                .split(frame.size());
+
+            frame.render_stateful_widget(list, chunks[0], &mut app.list_state);
+
+            let selected_path = if let Some(selected) = app.list_state.selected() {
+                app.dotfiles.get(selected)
+            } else {
+                None
+            };
+
+            let preview_content = if let Some(path) = selected_path {
+                if path.is_dir() {
+                    "This is a directory.".to_string()
+                } else {
+                    std::fs::read_to_string(path)
+                        .unwrap_or_else(|_| "Error reading file.".to_string())
+                }
+            } else {
+                "No file selected.".to_string()
+            };
+
+            let preview = Paragraph::new(preview_content).block(
+                Block::default()
+                    .title("Preview")
+                    .borders(Borders::ALL)
+                    .padding(Padding::horizontal(1)),
+            );
+
+            frame.render_widget(preview, chunks[1]);
         })?;
 
         // Handle input
